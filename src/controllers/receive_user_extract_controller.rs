@@ -1,14 +1,14 @@
 use actix_multipart::Multipart;
 use actix_web::{web, Error, HttpResponse};
-use futures::{StreamExt, TryStreamExt};
+use crate::adapter::receive_user_extract_adapter::ReceiveUserExtractAdapter;
 
 pub struct ReceiveUserExtractController {
-    // Aqui será injetado o serviço quando for implementado
+    adapter: ReceiveUserExtractAdapter,
 }
 
 impl ReceiveUserExtractController {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(adapter: ReceiveUserExtractAdapter) -> Self {
+        Self { adapter }
     }
 }
 
@@ -20,44 +20,28 @@ pub async fn process_files(
     let mut extract_file = None;
     let mut credit_card_file = None;
 
-    while let Ok(Some(mut field)) = payload.try_next().await {
+    while let Some(mut field) = payload.try_next().await? {
         let content_disposition = field.content_disposition();
-        let field_name = content_disposition.get_name().unwrap_or("");
+        let filename = content_disposition.get_filename().unwrap_or("unknown");
 
-        match field_name {
-            "extract" => {
-                let mut data = Vec::new();
-                while let Some(chunk) = field.next().await {
-                    data.extend_from_slice(&chunk?);
-                }
-                extract_file = Some(data);
-            }
-            "creditCard" => {
-                let mut data = Vec::new();
-                while let Some(chunk) = field.next().await {
-                    data.extend_from_slice(&chunk?);
-                }
-                credit_card_file = Some(data);
-            }
-            _ => {}
+        if filename.contains("extrato") {
+            extract_file = Some(payload);
+            break;
+        } else if filename.contains("cartao") {
+            credit_card_file = Some(payload);
+            break;
         }
     }
 
-    if extract_file.is_none() {
-        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Arquivo de extrato é obrigatório"
-        })));
-    }
+    let extract_file = extract_file.ok_or_else(|| {
+        actix_web::error::ErrorBadRequest("Arquivo de extrato não encontrado")
+    })?;
 
-    if credit_card_file.is_none() {
-        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Arquivo de fatura é obrigatório"
-        })));
-    }
+    let credit_card_file = credit_card_file.ok_or_else(|| {
+        actix_web::error::ErrorBadRequest("Arquivo de cartão de crédito não encontrado")
+    })?;
 
-    // Aqui será implementado o processamento dos arquivos quando o serviço for criado
-    // Por enquanto, apenas retornamos um sucesso
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Arquivos recebidos com sucesso"
-    })))
+    controller.adapter.process_files(user_id.into_inner(), extract_file, credit_card_file).await?;
+
+    Ok(HttpResponse::Ok().json("Arquivos processados com sucesso"))
 } 
