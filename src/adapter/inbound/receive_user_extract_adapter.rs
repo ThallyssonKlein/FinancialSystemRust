@@ -4,8 +4,9 @@ use csv::{Reader, ReaderBuilder};
 use futures::{StreamExt, TryStreamExt};
 use std::io::Cursor;
 use crate::domain::service::process_files_service::ProcessFilesService;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Transaction {
     pub date: String,
     pub description: String,
@@ -32,8 +33,8 @@ impl ReceiveUserExtractAdapter {
         let extract_items = self.process_extract_file(extract_file).await?;
         let credit_card_items = self.process_credit_card_file(credit_card_file).await?;
 
-        self.process_files_service.process_files(extract_items, &user_id, "extract");
-        self.process_files_service.process_files(credit_card_items, &user_id, "credit");
+        self.process_files_service.process_files(extract_items, &user_id, "extract").await?;
+        self.process_files_service.process_files(credit_card_items, &user_id, "credit").await?;
 
         Ok(())
     }
